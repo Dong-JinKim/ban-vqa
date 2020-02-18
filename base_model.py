@@ -10,12 +10,101 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import weight_norm
 import utils
-from attention import BiAttention
+from attention import BiAttention,Attention, NewAttention
 from language_model import WordEmbedding, QuestionEmbedding
 from classifier import SimpleClassifier
 from fc import FCNet
 from bc import BCNet
 from counting import Counter
+import pdb
+
+
+
+class BaseModel(nn.Module):
+    def __init__(self, w_emb, q_emb, v_att, q_net, v_net, classifier):
+        super(BaseModel, self).__init__()
+        self.w_emb = w_emb
+        self.q_emb = q_emb
+        self.v_att = v_att
+        self.q_net = q_net
+        self.v_net = v_net
+        self.classifier = classifier
+
+    def forward(self, v, b, q, labels):
+        """Forward
+
+        v: [batch, num_objs, obj_dim]
+        b: [batch, num_objs, b_dim]
+        q: [batch_size, seq_length]
+
+        return: logits, not probs
+        """
+        w_emb = self.w_emb(q)
+        q_emb = self.q_emb(w_emb) # [batch, q_dim]
+
+        att = self.v_att(v, q_emb)
+        v_emb = (att * v).sum(1) # [batch, v_dim]
+
+        q_repr = self.q_net(q_emb)
+        v_repr = self.v_net(v_emb)
+        joint_repr = q_repr * v_repr
+        logits = self.classifier(joint_repr)
+        return logits,None
+        
+        
+class SimpleModel(nn.Module):
+    def __init__(self, dataset, w_emb, q_emb, v_att, b_net, q_prj, c_prj, classifier, counter, op, glimpse):
+        super(SimpleModel, self).__init__()
+        self.dataset = dataset
+        self.op = op
+        self.glimpse = glimpse
+        self.w_emb = w_emb
+        self.q_emb = q_emb
+        self.v_att = v_att
+        self.b_net = nn.ModuleList(b_net)
+        self.q_prj = nn.ModuleList(q_prj)
+        ##self.c_prj = nn.ModuleList(c_prj)
+        self.classifier = classifier
+        ##self.counter = counter
+        self.drop = nn.Dropout(.5)
+        self.tanh = nn.Tanh()
+
+    def forward(self, v, b, q, labels):
+        """Forward
+
+        v: [batch, num_objs, obj_dim]
+        b: [batch, num_objs, b_dim]
+        q: [batch_size, seq_length]
+
+        return: logits, not probs
+        """
+        w_emb = self.w_emb(q)
+        q_emb = self.q_emb(w_emb) # [batch, q_dim]
+        ##boxes = b[:,:,:4].transpose(1,2)
+
+        #b_emb = [0] * 1#self.glimpse
+        att = self.v_att(v, q_emb) # b x g x v x q
+
+        
+        pdb.set_trace()
+        #for g in range(self.glimpse):
+        b_emb = self.b_net.forward_with_weights(v, q_emb, att[:,g,:,:]) # b x l x h
+        
+        ##atten, _ = logits[:,g,:,:].max(2)
+        ##embed = self.counter(boxes, atten)
+
+        q_emb = self.q_prj[g](b_emb.unsqueeze(1)) #+ q_emb
+        ##q_emb = q_emb + self.c_prj[g](embed).unsqueeze(1)
+
+        
+        
+        
+        logits = self.classifier(q_emb.sum(1))
+
+        return logits, att
+        
+        
+##############################################################################################################        
 
 
 class BanModel(nn.Module):
@@ -102,7 +191,7 @@ class BanModel_flickr(nn.Module):
         return None, att
 
 
-def build_ban(dataset, num_hid, op='', gamma=4, task='vqa'):
+def build_ban(dataset, num_hid, op='', gamma=4, task='vqa'):# gamma 4->1
     w_emb = WordEmbedding(dataset.dictionary.ntoken, 300, .0, op)
     q_emb = QuestionEmbedding(300 if 'c' not in op else 600, num_hid, 1, False, .0)
     v_att = BiAttention(dataset.v_dim, num_hid, num_hid, gamma)
@@ -121,3 +210,40 @@ def build_ban(dataset, num_hid, op='', gamma=4, task='vqa'):
         return BanModel(dataset, w_emb, q_emb, v_att, b_net, q_prj, c_prj, classifier, counter, op, gamma)
     elif task == 'flickr':
         return BanModel_flickr(w_emb, q_emb, v_att, op, gamma)
+###########################################################################
+def build_simple(dataset, num_hid, op='', gamma=4, task='vqa'):
+    w_emb = WordEmbedding(dataset.dictionary.ntoken, 300, .0, op)
+    q_emb = QuestionEmbedding(300 if 'c' not in op else 600, num_hid, 1, False, .0)
+    v_att = BiAttention(dataset.v_dim, num_hid, num_hid, gamma)
+    if task == 'vqa':
+
+        objects = 10  # minimum number of boxes
+        b_net = [BCNet(dataset.v_dim, num_hid, num_hid, None, k=1)]
+        q_prj = [FCNet([num_hid, num_hid], '', .2)]
+        c_prj = [FCNet([objects + 1, num_hid], 'ReLU', .0)]
+        classifier = SimpleClassifier(num_hid, num_hid * 2, dataset.num_ans_candidates, .5)
+        counter = Counter(objects)
+        return SimpleModel(dataset, w_emb, q_emb, v_att, b_net, q_prj, c_prj, classifier, counter, op, gamma)
+    elif task == 'flickr':
+        return BanModel_flickr(w_emb, q_emb, v_att, op, gamma)
+
+def build_baseline0(dataset, num_hid, op='', gamma=0, task='vqa'):
+    w_emb = WordEmbedding(dataset.dictionary.ntoken, 300, 0.0)
+    q_emb = QuestionEmbedding(300, num_hid, 1, False, 0.0)
+    v_att = Attention(dataset.v_dim, q_emb.num_hid, num_hid)#----difference is here!!!!
+    q_net = FCNet([num_hid, num_hid])
+    v_net = FCNet([dataset.v_dim, num_hid])
+    classifier = SimpleClassifier(
+        num_hid, 2 * num_hid, dataset.num_ans_candidates, 0.5)
+    return BaseModel(w_emb, q_emb, v_att, q_net, v_net, classifier)
+
+
+def build_baseline0_newatt(dataset, num_hid, op='', gamma=0, task='vqa'):
+    w_emb = WordEmbedding(dataset.dictionary.ntoken, 300, 0.0)
+    q_emb = QuestionEmbedding(300, num_hid, 1, False, 0.0)
+    v_att = NewAttention(dataset.v_dim, q_emb.num_hid, num_hid)#----difference is here!!!!
+    q_net = FCNet([q_emb.num_hid, num_hid])
+    v_net = FCNet([dataset.v_dim, num_hid])
+    classifier = SimpleClassifier(
+        num_hid, num_hid * 2, dataset.num_ans_candidates, 0.5)
+    return BaseModel(w_emb, q_emb, v_att, q_net, v_net, classifier)

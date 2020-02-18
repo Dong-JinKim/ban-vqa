@@ -683,7 +683,7 @@ if __name__=='__main2__':
 
     # train_loader = DataLoader(vg_dset, 10, shuffle=True, num_workers=1)
 
-    loader = DataLoader(train_dset, 10, shuffle=True, num_workers=1, collate_fn=utils.trim_collate)
+    loader = DataLoader(train_dset, 10, shuffle=True, num_workers=0, collate_fn=utils.trim_collate)
     for i, (v, b, q, a) in enumerate(loader):
         print(v.size()) 
 

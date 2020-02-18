@@ -79,6 +79,7 @@ class QuestionEmbedding(nn.Module):
         # x: [batch, sequence, in_dim]
         batch = x.size(0)
         hidden = self.init_hidden(batch)
+        ##self.rnn.flatten_parameters()#-----!!!!!! should I use this?
         output, hidden = self.rnn(x, hidden)
 
         if self.ndirections == 1:
@@ -92,5 +93,6 @@ class QuestionEmbedding(nn.Module):
         # x: [batch, sequence, in_dim]
         batch = x.size(0)
         hidden = self.init_hidden(batch)
+        ##self.rnn.flatten_parameters()#-----!!!!!! should I use this?
         output, hidden = self.rnn(x, hidden)
         return output
