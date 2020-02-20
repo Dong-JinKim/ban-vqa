@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument('--task', type=str, default='vqa', help='vqa or flickr')
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--num_hid', type=int, default=1024)
-    parser.add_argument('--model', type=str, default='ban', help='ban / simple') #-----add simple
+    parser.add_argument('--model', type=str, default='baseline0_newatt', help='ban / simple / baseline0 / baseline0_newatt') #-----add simple
     parser.add_argument('--op', type=str, default='')#----originally 'c'
     parser.add_argument('--gamma', type=int, default=8, help='glimpse')
     parser.add_argument('--use_both', action='store_true', help='use both train/val datasets to train?')
@@ -74,9 +74,9 @@ if __name__ == '__main__':
     tfidf = None
     weights = None
 
-    #if args.tfidf:#------!!!!!
-    #    dict = Dictionary.load_from_file(dict_path)
-    #    tfidf, weights = tfidf_from_questions(['train', 'val', 'test2015'], dict)
+    if args.tfidf:#------!!!!!
+        dict = Dictionary.load_from_file(dict_path)
+        tfidf, weights = tfidf_from_questions(['train', 'val', 'test2015'], dict)
 
     model.w_emb.init_embedding(w_emb_path, tfidf, weights)
 
