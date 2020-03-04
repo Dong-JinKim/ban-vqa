@@ -28,7 +28,7 @@ def compute_score_with_logits(logits, labels):
     return scores
 
 
-def train(model, train_loader, eval_loader, num_epochs, output, opt=None, s_epoch=0):
+def train(model, train_loader, eval_loader, num_epochs, output,cycle, opt=None, s_epoch=0):
     lr_default = 1e-3 if eval_loader is not None else 7e-4
     lr_decay_step = 2
     lr_decay_rate = .25
@@ -40,10 +40,10 @@ def train(model, train_loader, eval_loader, num_epochs, output, opt=None, s_epoc
     utils.create_dir(output)
     optim = torch.optim.Adamax(filter(lambda p: p.requires_grad, model.parameters()), lr=lr_default) \
         if opt is None else opt
-    logger = utils.Logger(os.path.join(output, 'log.txt'))
+    logger = utils.Logger(os.path.join(output, 'log_%d.txt'%cycle))
     best_eval_score = 0
 
-    utils.print_model(model, logger)
+    #utils.print_model(model, logger)
     logger.write('optim: adamax lr=%.4f, decay_step=%d, decay_rate=%.2f, grad_clip=%.2f' % \
         (lr_default, lr_decay_step, lr_decay_rate, grad_clip))
 
@@ -104,6 +104,7 @@ def train(model, train_loader, eval_loader, num_epochs, output, opt=None, s_epoc
             utils.save_model(model_path, model, epoch, optim)
             if eval_loader is not None:
                 best_eval_score = eval_score
+    return best_eval_score
 
 
 @torch.no_grad()
